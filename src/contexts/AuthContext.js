@@ -26,14 +26,13 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const signInWithGitHub = async () => {
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: 'github',
-      options: {
-        scopes: 'repo,workflow',
-        redirectTo: `${window.location.origin}/auth/callback`
-      }
-    });
-    
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: 'github',
+    options: {
+      scopes: 'repo,workflow',
+      redirectTo: process.env.REACT_APP_REDIRECT_URL
+    }
+  });    
     if (error) throw error;
     return data;
   };
