@@ -87,35 +87,39 @@ class GitHubService {
   }
 
   async getRepositories() {
-    try {
-      const githubToken = await this.getGitHubToken();
-      if (!githubToken) {
-        throw new Error('No GitHub token available');
-      }
-
-      const response = await fetch('https://api.github.com/user/repos', {
-        headers: {
-          'Authorization': `Bearer ${githubToken}`,
-          'Accept': 'application/vnd.github.v3+json'
-        },
-        params: {
-          sort: 'updated',
-          per_page: 100,
-          affiliation: 'owner,collaborator'
-        }
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || `GitHub API error: ${response.status}`);
-      }
-
-      return await response.json();
-    } catch (error) {
-      console.error('Error fetching repositories:', error);
-      throw error;
+  try {
+    const githubToken = await this.getGitHubToken();
+    if (!githubToken) {
+      throw new Error('No GitHub token available');
     }
+
+    // Build URL with query params
+    const url = new URL('https://api.github.com/user/repos');
+    url.searchParams.append('sort', 'updated');
+    url.searchParams.append('per_page', '100');
+    url.searchParams.append('affiliation', 'owner,collaborator');
+
+    const response = await fetch(url.toString(), {
+      headers: {
+        'Authorization': `Bearer ${githubToken}`,
+        'Accept': 'application/vnd.github.v3+json',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache'
+      }
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || `GitHub API error: ${response.status}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching repositories:', error);
+    throw error;
   }
+}
+
 
   // Create branch directly via GitHub API
   async createBranch(repoFullName, branchName, baseBranch = 'main') {
