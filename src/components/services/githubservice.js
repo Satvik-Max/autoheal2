@@ -87,37 +87,37 @@ class GitHubService {
   }
 
   async getRepositories() {
-    try {
-      const githubToken = await this.getGitHubToken();
-      if (!githubToken) {
-        throw new Error('No GitHub token available');
-      }
-
-      const response = await fetch('https://api.github.com/user/repos', {
-        headers: {
-          'Authorization': `Bearer ${githubToken}`,
-          'Accept': 'application/vnd.github.v3+json'
-        },
-        params: {
-          sort: 'updated',
-          per_page: 100,
-          affiliation: 'owner,collaborator'
-        }
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || `GitHub API error: ${response.status}`);
-      }
-
-      return await response.json();
-    } catch (error) {
-      console.error('Error fetching repositories:', error);
-      throw error;
+  try {
+    const githubToken = await this.getGitHubToken();
+    if (!githubToken) {
+      throw new Error('No GitHub token available');
     }
+
+    // Construct URL with query parameters
+    const params = new URLSearchParams({
+      sort: 'updated',
+      per_page: '100',
+      affiliation: 'owner,collaborator'
+    });
+
+    const response = await fetch(`https://api.github.com/user/repos?${params}`, {
+      headers: {
+        'Authorization': `Bearer ${githubToken}`,
+        'Accept': 'application/vnd.github.v3+json'
+      }
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || `GitHub API error: ${response.status}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching repositories:', error);
+    throw error;
   }
-
-
+}
 
   // Create branch directly via GitHub API
   async createBranch(repoFullName, branchName, baseBranch = 'main') {
