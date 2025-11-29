@@ -1,142 +1,375 @@
-import { supabase } from '../../lib/supabase';
+// services/groqService.js
+import Groq from "groq-sdk";
 
 class GroqService {
-
-  async getGitHubToken() {
+  constructor() {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      return session?.provider_token || null;
-    } catch (error) {
-      console.error('Error getting GitHub token:', error);
-      return null;
-    }
-  }
-
-  // Direct Groq API call (replaces backend analyze-failure)
-  async analyzeFailure(logs, failedRun, repoFullName) {
-    try {
-      if (!process.env.REACT_APP_GROQ_API_KEY) {
-        throw new Error('Groq API key missing');
+      // Initialize Groq client with API key
+      const apiKey = process.env.REACT_APP_GROQ_API_KEY;
+      
+      if (!apiKey) {
+        console.error('❌ REACT_APP_GROQ_API_KEY is not set in environment variables');
+        throw new Error('GROQ_API_KEY is required. Please check your .env file.');
       }
-
-      const minimalPrompt = `
-Workflow failed: ${failedRun.name}.
-Logs: ${typeof logs === 'string' ? logs.slice(0, 2000) : JSON.stringify(logs).slice(0, 2000)}
-
-Return JSON ONLY:
-{
- "issue":"short issue",
- "rootCause":"brief reason",
- "suggestedFix":"simple fix",
- "confidence":"high"
-}
-      `;
-
-      const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${process.env.REACT_APP_GROQ_API_KEY}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          model: "llama-3.1-8b-instant",
-          messages: [{ role: "user", content: minimalPrompt }],
-          temperature: 0.1,
-          max_tokens: 150,
-          response_format: { type: "json_object" }
-        })
+      
+      this.groq = new Groq({
+        apiKey: apiKey,
+        dangerouslyAllowBrowser: true // Required for browser usage
       });
-
-      if (!response.ok) {
-        throw new Error(`Groq API error: ${response.status}`);
-      }
-
-      const data = await response.json();
-      const content = JSON.parse(data.choices[0].message.content);
-
-      return {
-        ...content,
-        runId: failedRun.id,
-        workflowName: failedRun.name,
-        repository: repoFullName,
-        timestamp: new Date().toISOString(),
-        filesToFix: [".github/workflows/ci.yml"]
-      };
-
-    } catch (err) {
-      console.error("Groq analysis error:", err);
-      throw new Error("AI analysis failed");
-    }
-  }
-
-  // Direct Groq call to generate fixes (replaces backend generate-fix)
-  async generateFixInstructions(analysis, repoFullName) {
-    try {
-      if (!process.env.REACT_APP_GROQ_API_KEY) {
-        throw new Error("Groq API key missing");
-      }
-
-      const prompt = `
-Given this analysis:
-${JSON.stringify(analysis)}
-
-Repository: ${repoFullName}
-
-Return JSON ONLY:
-{
- "fixSteps": ["step1", "step2"],
- "updatedFiles": ["file paths"],
- "confidence":"high"
-}
-      `;
-
-      const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${process.env.REACT_APP_GROQ_API_KEY}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          model: "llama-3.1-8b-instant",
-          messages: [{ role: "user", content: prompt }],
-          temperature: 0.1,
-          response_format: { type: "json_object" }
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(`Groq API error: ${response.status}`);
-      }
-
-      return JSON.parse((await response.json()).choices[0].message.content);
-
+      
+      console.log('✅ Groq client initialized successfully');
     } catch (error) {
-      console.error("Fix generation error:", error);
-      throw new Error("Fix generation failed");
-    }
-  }
-
-  // Optional: test direct Groq connectivity
-  async testConnection() {
-    try {
-      const response = await fetch("https://api.groq.com/openai/v1/models", {
-        headers: {
-          "Authorization": `Bearer ${process.env.REACT_APP_GROQ_API_KEY}`
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error(`Groq service error: ${response.status}`);
-      }
-
-      return { status: "ok", message: "Groq API reachable" };
-
-    } catch (error) {
-      console.error("Groq test error:", error);
+      console.error('❌ Failed to initialize Groq client:', error);
       throw error;
     }
   }
+
+  // Get available models (updated list)
+  getAvailableModels() {
+    return [
+      "llama-3.1-8b-instant", // Fast, efficient
+      "llama-3.1-70b-versatile", // Powerful, balanced
+      "mixtral-8x7b-32768", // Legacy (if still available)
+      "gemma2-9b-it" // Alternative option
+    ];
+  }
+
+  // Get the best available model
+  getBestModel() {
+    return "llama-3.1-8b-instant"; // Default to fast model
+  }
+
+  async generateFixInstructions(analysis, repoFullName) {
+    // Validate Groq client is initialized
+    if (!this.groq) {
+      throw new Error('Groq client not initialized. Please check your API key.');
+    }
+
+    const prompt = `
+Generate SPECIFIC file fixes for GitHub Actions failure.
+
+FAILURE: ${analysis.issue}
+FIX: ${analysis.suggestedFix}
+REPO: ${repoFullName}
+
+RETURN JSON with:
+- prTitle: "Fix: [issue]"
+- prDescription: "Fixes workflow failure"
+- commitMessage: "fix: [issue]"
+- filesToCreateOrModify: Array of {path, content}
+
+CONTENT MUST BE:
+- Complete file content (not patches)
+- Valid YAML/configuration
+- Directly fix the reported issue
+
+EXAMPLE for missing dependencies:
+{
+  "path": ".github/workflows/fixed.yml",
+  "content": "name: Build\\non: push\\njobs:\\n  build:\\n    runs-on: ubuntu-latest\\n    steps:\\n      - uses: actions/checkout@v4\\n      - name: Install dependencies\\n        run: npm install\\n      - name: Build\\n        run: npm run build"
 }
 
-const groqServiceInstance = new GroqService();
-export default groqServiceInstance;
+NOW PROVIDE ACTUAL FIXES:
+`;
+
+    try {
+      console.log('🤖 Sending request to Groq API...');
+      
+      const completion = await this.groq.chat.completions.create({
+        messages: [
+          {
+            role: "system", 
+            content: "You provide concrete file fixes for GitHub Actions. Always return complete file content in JSON format. Never return empty filesToCreateOrModify array."
+          },
+          {
+            role: "user",
+            content: prompt
+          }
+        ],
+        model: this.getBestModel(),
+        temperature: 0.1,
+        max_tokens: 3000,
+        response_format: { type: "json_object" }
+      });
+
+      const response = completion.choices[0]?.message?.content;
+      console.log('🔍 Groq raw response:', response);
+      
+      if (!response) {
+        throw new Error('Empty response from Groq API');
+      }
+
+      const result = JSON.parse(response);
+      
+      // Validate the response has the required structure
+      if (!result.filesToCreateOrModify || !Array.isArray(result.filesToCreateOrModify)) {
+        throw new Error('Invalid response: missing filesToCreateOrModify array');
+      }
+
+      if (result.filesToCreateOrModify.length === 0) {
+        throw new Error('No file changes generated by AI');
+      }
+
+      // Validate each file has required fields
+      result.filesToCreateOrModify.forEach((file, index) => {
+        if (!file.path || typeof file.path !== 'string') {
+          throw new Error(`File at index ${index} missing or invalid path`);
+        }
+        if (!file.content || typeof file.content !== 'string') {
+          throw new Error(`File at index ${index} missing or invalid content`);
+        }
+      });
+
+      console.log(`✅ Generated ${result.filesToCreateOrModify.length} file changes`);
+      return result;
+
+    } catch (error) {
+      console.error('❌ Groq service error:', error);
+      
+      // Handle model deprecation specifically
+      if (error.message.includes('decommissioned') || error.message.includes('model_not_found')) {
+        console.warn('⚠️ Model deprecated, trying alternative models...');
+        return await this.tryAlternativeModels(prompt, 'generateFix');
+      }
+      
+      // Provide more specific error messages
+      if (error.message.includes('API key') || error.message.includes('authentication')) {
+        throw new Error('Groq API authentication failed. Please check your API key.');
+      } else if (error.message.includes('rate limit')) {
+        throw new Error('Groq API rate limit exceeded. Please try again later.');
+      } else if (error.message.includes('network') || error.message.includes('fetch')) {
+        throw new Error('Network error connecting to Groq API. Please check your connection.');
+      } else {
+        throw new Error(`Groq API error: ${error.message}`);
+      }
+    }
+  }
+
+  async analyzeFailure(workflowLogs, failedRun, repoFullName) {
+    // Validate Groq client is initialized
+    if (!this.groq) {
+      throw new Error('Groq client not initialized');
+    }
+
+    // Extract key error lines from logs (limit to prevent token issues)
+    const keyLogs = workflowLogs.split('\n')
+      .filter(line => line.includes('error') || line.includes('Error') || line.includes('failed') || line.includes('Failed'))
+      .slice(0, 20)
+      .join('\n') || workflowLogs.substring(0, 1000);
+    
+    const prompt = `
+Analyze workflow failure and identify root cause.
+
+WORKFLOW: ${failedRun.name}
+REPO: ${repoFullName}
+STATUS: ${failedRun.conclusion}
+
+KEY ERROR LOGS:
+${keyLogs}
+
+RETURN JSON:
+{
+  "issue": "specific error description", 
+  "suggestedFix": "concrete action to fix",
+  "fixCategory": "deps|perms|config|script|env",
+  "detailedAnalysis": "brief analysis of what went wrong"
+}
+
+Be concise and specific. Focus on the actual error in the logs.
+`;
+
+    try {
+      console.log('🤖 Analyzing failure with Groq...');
+      
+      const completion = await this.groq.chat.completions.create({
+        messages: [
+          {
+            role: "system",
+            content: "You analyze GitHub Actions failures and provide specific root causes and fixes. Be concise and accurate."
+          },
+          {
+            role: "user", 
+            content: prompt
+          }
+        ],
+        model: this.getBestModel(),
+        temperature: 0.1,
+        max_tokens: 1500,
+        response_format: { type: "json_object" }
+      });
+
+      const response = completion.choices[0]?.message?.content;
+      
+      if (!response) {
+        throw new Error('Empty analysis response from Groq');
+      }
+
+      const result = JSON.parse(response);
+      console.log('✅ Analysis completed:', result.issue);
+      return result;
+
+    } catch (error) {
+      console.error('❌ Analysis failed:', error);
+      
+      // Handle model deprecation specifically
+      if (error.message.includes('decommissioned') || error.message.includes('model_not_found')) {
+        console.warn('⚠️ Model deprecated, trying alternative models...');
+        return await this.tryAlternativeModels(prompt, 'analyze');
+      }
+      
+      // Return a basic analysis as fallback
+      return {
+        issue: "Workflow execution failed - analysis unavailable",
+        suggestedFix: "Review workflow configuration and check recent changes",
+        fixCategory: "config",
+        detailedAnalysis: "Unable to analyze logs due to API error"
+      };
+    }
+  }
+
+  // Try alternative models if primary fails
+  async tryAlternativeModels(prompt, taskType) {
+    const models = this.getAvailableModels();
+    const primaryModel = this.getBestModel();
+    
+    // Remove primary model from alternatives
+    const alternativeModels = models.filter(model => model !== primaryModel);
+    
+    for (const model of alternativeModels) {
+      try {
+        console.log(`🔄 Trying alternative model: ${model}`);
+        
+        const completion = await this.groq.chat.completions.create({
+          messages: [
+            {
+              role: "system", 
+              content: taskType === 'generateFix' 
+                ? "You provide concrete file fixes for GitHub Actions. Always return complete file content in JSON format."
+                : "You analyze GitHub Actions failures and provide specific root causes and fixes."
+            },
+            {
+              role: "user",
+              content: prompt
+            }
+          ],
+          model: model,
+          temperature: 0.1,
+          max_tokens: taskType === 'generateFix' ? 3000 : 1500,
+          response_format: { type: "json_object" }
+        });
+
+        const response = completion.choices[0]?.message?.content;
+        
+        if (!response) {
+          continue; // Try next model
+        }
+
+        const result = JSON.parse(response);
+        
+        // Validate the result based on task type
+        if (taskType === 'generateFix') {
+          if (!result.filesToCreateOrModify || !Array.isArray(result.filesToCreateOrModify) || result.filesToCreateOrModify.length === 0) {
+            continue; // Try next model
+          }
+        }
+        
+        console.log(`✅ Success with model: ${model}`);
+        return result;
+        
+      } catch (error) {
+        console.warn(`❌ Model ${model} failed:`, error.message);
+        continue; // Try next model
+      }
+    }
+    
+    throw new Error('All available models failed. Please check the Groq console for available models.');
+  }
+
+  // Test method to verify service is working
+  async testConnection() {
+    try {
+      console.log('🧪 Testing Groq connection...');
+      
+      const testCompletion = await this.groq.chat.completions.create({
+        messages: [
+          {
+            role: "user",
+            content: "Say 'OK' if you're working."
+          }
+        ],
+        model: this.getBestModel(),
+        max_tokens: 10
+      });
+
+      const response = testCompletion.choices[0]?.message?.content;
+      console.log('✅ Groq test response:', response);
+      return true;
+      
+    } catch (error) {
+      console.error('❌ Groq connection test failed:', error);
+      
+      // Try alternative models for test
+      try {
+        await this.tryAlternativeModels("Say 'OK' if you're working.", 'test');
+        return true;
+      } catch (fallbackError) {
+        return false;
+      }
+    }
+  }
+
+  // Method to generate a simple fix for testing
+  async generateTestFix() {
+    const testAnalysis = {
+      issue: "Workflow fails because missing npm install step",
+      suggestedFix: "Add npm install step before build command",
+      fixCategory: "deps"
+    };
+
+    try {
+      return await this.generateFixInstructions(testAnalysis, "test/repository");
+    } catch (error) {
+      console.error('Test fix generation failed:', error);
+      throw error;
+    }
+  }
+
+  // Get current model info
+  getModelInfo() {
+    return {
+      current: this.getBestModel(),
+      available: this.getAvailableModels()
+    };
+  }
+}
+
+// Create and export singleton instance
+let groqServiceInstance = null;
+
+const getGroqService = () => {
+  if (!groqServiceInstance) {
+    try {
+      groqServiceInstance = new GroqService();
+    } catch (error) {
+      console.error('Failed to create GroqService instance:', error);
+      // Create a mock service for development without API key
+      groqServiceInstance = {
+        generateFixInstructions: async () => {
+          throw new Error('Groq service not available. Please set REACT_APP_GROQ_API_KEY.');
+        },
+        analyzeFailure: async () => ({
+          issue: "Mock analysis - Groq service not configured",
+          suggestedFix: "Set REACT_APP_GROQ_API_KEY environment variable",
+          fixCategory: "config",
+          detailedAnalysis: "Groq API key is required for AI-powered analysis"
+        }),
+        testConnection: async () => false,
+        getModelInfo: () => ({ current: 'none', available: [] })
+      };
+    }
+  }
+  return groqServiceInstance;
+};
+
+const groqService = getGroqService();
+export default groqService;

@@ -5,7 +5,15 @@ class GitHubService {
   async getGitHubToken() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      return session?.provider_token;
+      console.debug('Supabase session (getGitHubToken):', session);
+
+      // Try the most likely places where the provider OAuth token may appear.
+      const token = session?.provider_token || session?.provider_token?.access_token || session?.access_token || session?.user?.identities?.[0]?.access_token;
+      if (!token) {
+        console.warn('No provider token found on session:', session);
+        return null;
+      }
+      return token;
     } catch (error) {
       console.error('Error getting GitHub token:', error);
       return null;
@@ -24,12 +32,12 @@ class GitHubService {
       if (!owner || !repo) {
         throw new Error(`Invalid repository name: ${repoFullName}`);
       }
-      
+      const authHeader = `token ${githubToken}`;
       const response = await fetch(
         `https://api.github.com/repos/${owner}/${repo}/actions/runs`,
         {
           headers: {
-            'Authorization': `Bearer ${githubToken}`,
+            'Authorization': authHeader,
             'Accept': 'application/vnd.github.v3+json'
           }
         }
@@ -61,12 +69,12 @@ class GitHubService {
       if (!owner || !repo) {
         throw new Error(`Invalid repository name: ${repoFullName}`);
       }
-      
+      const authHeader = `token ${githubToken}`;
       const response = await fetch(
         `https://api.github.com/repos/${owner}/${repo}/actions/runs/${runId}/logs`,
         {
           headers: {
-            'Authorization': `Bearer ${githubToken}`,
+            'Authorization': authHeader,
             'Accept': 'application/vnd.github.v3+json'
           }
         }
@@ -87,7 +95,7 @@ class GitHubService {
   }
 
   async getRepositories() {
-  try {
+    try {
     const githubToken = await this.getGitHubToken();
     if (!githubToken) {
       throw new Error('No GitHub token available');
@@ -100,9 +108,10 @@ class GitHubService {
       affiliation: 'owner,collaborator'
     });
 
+    const authHeader = `token ${githubToken}`;
     const response = await fetch(`https://api.github.com/user/repos?${params}`, {
       headers: {
-        'Authorization': `Bearer ${githubToken}`,
+        'Authorization': authHeader,
         'Accept': 'application/vnd.github.v3+json'
       }
     });
@@ -130,11 +139,12 @@ class GitHubService {
       const [owner, repo] = repoFullName.split('/');
       
       // First get the SHA of the base branch
+      const authHeader = `token ${githubToken}`;
       const baseResponse = await fetch(
         `https://api.github.com/repos/${owner}/${repo}/git/ref/heads/${baseBranch}`,
         {
           headers: {
-            'Authorization': `Bearer ${githubToken}`,
+            'Authorization': authHeader,
             'Accept': 'application/vnd.github.v3+json'
           }
         }
@@ -153,7 +163,7 @@ class GitHubService {
         {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${githubToken}`,
+            'Authorization': authHeader,
             'Accept': 'application/vnd.github.v3+json',
             'Content-Type': 'application/json'
           },
@@ -193,11 +203,12 @@ class GitHubService {
 
       // Try to get existing file to get its SHA
       try {
+        const authHeader = `token ${githubToken}`;
         const existingResponse = await fetch(
           `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`,
           {
             headers: {
-              'Authorization': `Bearer ${githubToken}`,
+              'Authorization': authHeader,
               'Accept': 'application/vnd.github.v3+json'
             },
             params: { ref: branch }
@@ -212,12 +223,13 @@ class GitHubService {
         // File doesn't exist, that's fine - we'll create it
       }
 
+      const authHeader = `token ${githubToken}`;
       const response = await fetch(
         `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`,
         {
           method: 'PUT',
           headers: {
-            'Authorization': `Bearer ${githubToken}`,
+            'Authorization': authHeader,
             'Accept': 'application/vnd.github.v3+json',
             'Content-Type': 'application/json'
           },
@@ -255,12 +267,13 @@ class GitHubService {
 
       const [owner, repo] = repoFullName.split('/');
       
+      const authHeader = `token ${githubToken}`;
       const response = await fetch(
         `https://api.github.com/repos/${owner}/${repo}/pulls`,
         {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${githubToken}`,
+            'Authorization': authHeader,
             'Accept': 'application/vnd.github.v3+json',
             'Content-Type': 'application/json'
           },
@@ -298,11 +311,12 @@ class GitHubService {
 
       const [owner, repo] = repoFullName.split('/');
       
+      const authHeader = `token ${githubToken}`;
       const response = await fetch(
         `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`,
         {
           headers: {
-            'Authorization': `Bearer ${githubToken}`,
+            'Authorization': authHeader,
             'Accept': 'application/vnd.github.v3+json'
           },
           params: { ref: branch }
