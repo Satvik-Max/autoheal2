@@ -358,7 +358,95 @@ class GitHubService {
     if (!workflowRuns) return null;
     return workflowRuns.find(run => run.conclusion === 'failure') || null;
   }
+  // Detect project type by checking for well-known dependency/build files
+  // Exposed helper: detectProjectType(fileNames: string[]): string
+  detectProjectType(fileNames = []) {
+    const names = fileNames.map(name => name.toLowerCase());
+    if (names.includes('package.json')) return 'node';
+    if (names.includes('requirements.txt') || names.includes('pyproject.toml')) return 'python';
+    if (names.includes('pubspec.yaml')) return 'flutter';
+    if (names.includes('go.mod')) return 'go';
+    if (names.includes('cargo.toml')) return 'rust';
+    if (names.includes('pom.xml') || names.includes('build.gradle')) return 'java';
+    if (names.includes('dockerfile')) return 'docker';
+    return 'unknown';
+  }
+
+  // Get raw file content (decoded) from GitHub repository
+  async getFileContent(repoFullName, path, branch = 'main') {
+    try {
+      const contentResp = await this.getRepositoryContent(repoFullName, path, branch);
+      if (!contentResp) return null;
+      // Use decodedContent if available, otherwise decode here
+      if (contentResp.decodedContent) return contentResp.decodedContent;
+      if (contentResp.content && contentResp.encoding === 'base64') {
+        return Buffer.from(contentResp.content, 'base64').toString('utf8');
+      }
+      return null;
+    } catch (error) {
+      console.warn(`Could not read ${path} from ${repoFullName}:`, error.message);
+      return null;
+    }
+  }
+
+  // Fetch dependency/build files based on detected project type
+  async fetchDependencyFiles(repoFullName, projectType) {
+    const files = {};
+    const tryGet = async (p) => {
+      const c = await this.getFileContent(repoFullName, p).catch(() => null);
+      if (c !== null) files[p] = c;
+    };
+
+    if (projectType === 'node') {
+      await tryGet('package.json');
+    } else if (projectType === 'python') {
+      await tryGet('requirements.txt');
+      await tryGet('pyproject.toml');
+    } else if (projectType === 'flutter') {
+      await tryGet('pubspec.yaml');
+    } else if (projectType === 'java') {
+      await tryGet('pom.xml');
+      await tryGet('build.gradle');
+    } else if (projectType === 'go') {
+      await tryGet('go.mod');
+    } else if (projectType === 'rust') {
+      await tryGet('Cargo.toml');
+    } else if (projectType === 'docker') {
+      await tryGet('Dockerfile');
+    }
+
+    return files;
+  }
+
+  // List workflow files and return map of path -> content
+  async listWorkflowFiles(repoFullName) {
+    try {
+      const githubToken = await this.getGitHubToken();
+      if (!githubToken) return {};
+
+      const [owner, repo] = repoFullName.split('/');
+      const authHeader = `token ${githubToken}`;
+      const listUrl = `https://api.github.com/repos/${owner}/${repo}/contents/.github/workflows`;
+      const res = await fetch(listUrl, { headers: { 'Authorization': authHeader, 'Accept': 'application/vnd.github.v3+json' } });
+      if (!res.ok) return {};
+      const items = await res.json();
+      const result = {};
+      if (Array.isArray(items)) {
+        for (const item of items) {
+          if (item && item.path) {
+            const content = await this.getFileContent(repoFullName, item.path).catch(() => null);
+            if (content !== null) result[item.path] = content;
+          }
+        }
+      }
+      return result;
+    } catch (error) {
+      console.warn('Could not list workflow files:', error.message);
+      return {};
+    }
+  }
 }
 
 const githubServiceInstance = new GitHubService();
+export const detectProjectType = (fileNames) => githubServiceInstance.detectProjectType(fileNames);
 export default githubServiceInstance;

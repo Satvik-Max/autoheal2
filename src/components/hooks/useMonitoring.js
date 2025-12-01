@@ -11,21 +11,7 @@ export const useMonitoring = () => {
   const [recentPRs, setRecentPRs] = useState([]); 
   const monitoringIntervals = useRef({});
   const healingAttempts = useRef(new Map());
-  const isInitialized = useRef(false); 
-
-  // Get GitHub token from Supabase session
-  const getGitHubToken = useCallback(async () => {
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.provider_token) {
-        throw new Error('No GitHub token available. Please sign in with GitHub.');
-      }
-      return session.provider_token;
-    } catch (error) {
-      console.error('Error getting GitHub token:', error);
-      throw error;
-    }
-  }, []);
+  const isInitialized = useRef(false);
 
   // Track recent PR for UI display
   const addRecentPR = useCallback((prData) => {
@@ -135,11 +121,11 @@ export const useMonitoring = () => {
       // Step 8: Send Slack notification
       try {
         await apiService.sendSlackNotification(
-          `✅ *Auto-fix Applied*\n` +
-          `📦 Repo: ${repoFullName}\n` +
-          `🔧 Workflow: ${failedRun.name}\n` +
-          `🔗 PR: ${prData.url}\n` +
-          `📋 Issue: ${analysis.issue}`
+          ` *Auto-fix Applied*\n` +
+          ` Repo: ${repoFullName}\n` +
+          ` Workflow: ${failedRun.name}\n` +
+          ` PR: ${prData.url}\n` +
+          ` Issue: ${analysis.issue}`
         );
       } catch (slackError) {
         console.warn('Failed to send Slack notification:', slackError);
@@ -159,8 +145,8 @@ export const useMonitoring = () => {
         }
       }));
 
-      console.log(`✅ Healing completed for ${repoFullName}!`);
-      console.log(`📝 PR: ${prData.url}`);
+      console.log(` Healing completed for ${repoFullName}!`);
+      console.log(` PR: ${prData.url}`);
       
       return { 
         success: true, 
@@ -175,10 +161,10 @@ export const useMonitoring = () => {
       // Send error notification
       try {
         await apiService.sendSlackNotification(
-          `❌ *Auto-fix Failed*\n` +
-          `📦 Repo: ${repoFullName}\n` +
-          `🔧 Workflow: ${failedRun.name}\n` +
-          `⚠️ Error: ${error.message}`
+          ` *Auto-fix Failed*\n` +
+          ` Repo: ${repoFullName}\n` +
+          ` Workflow: ${failedRun.name}\n` +
+          ` Error: ${error.message}`
         );
       } catch (slackError) {
         console.warn('Failed to send error notification:', slackError);

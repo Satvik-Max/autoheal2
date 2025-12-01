@@ -45,31 +45,50 @@ class GroqService {
       throw new Error('Groq client not initialized. Please check your API key.');
     }
 
-    const prompt = `
-Generate SPECIFIC file fixes for GitHub Actions failure.
+    const prompt = `You are the AI Fix Engine for GitHub Auto-Heal.
 
-FAILURE: ${analysis.issue}
-FIX: ${analysis.suggestedFix}
-REPO: ${repoFullName}
+IMPORTANT RULES:
+1. NEVER create new workflow files. Modify ONLY existing ones.
+2. NEVER replace entire package.json or other dependency files.
+3. ONLY modify what is required to fix the failure.
+4. ALWAYS preserve all other lines exactly as they exist.
+5. NEVER delete fields, dependencies, scripts, or devDependencies.
+6. NEVER invent new files unless the human explicitly asked for it.
+7. NEVER generate placeholder or dummy content.
+8. If the fix requires updating a version, update ONLY that line.
 
-RETURN JSON with:
-- prTitle: "Fix: [issue]"
-- prDescription: "Fixes workflow failure"
-- commitMessage: "fix: [issue]"
-- filesToCreateOrModify: Array of {path, content}
+PROJECT INFO:
+Repository: ${repoFullName}
+Failure: ${analysis.issue}
+Suggested Fix: ${analysis.suggestedFix}
 
-CONTENT MUST BE:
-- Complete file content (not patches)
-- Valid YAML/configuration
-- Directly fix the reported issue
-
-EXAMPLE for missing dependencies:
+RETURN JSON with EXACT structure:
 {
-  "path": ".github/workflows/fixed.yml",
-  "content": "name: Build\\non: push\\njobs:\\n  build:\\n    runs-on: ubuntu-latest\\n    steps:\\n      - uses: actions/checkout@v4\\n      - name: Install dependencies\\n        run: npm install\\n      - name: Build\\n        run: npm run build"
+  "prTitle": "Fix: <short fix>",
+  "prDescription": "<explanation>",
+  "commitMessage": "<message>",
+  "filesToCreateOrModify": [
+    {
+      "path": "<existing file path>",
+      "content": "<FULL updated file content>"
+    }
+  ]
 }
 
-NOW PROVIDE ACTUAL FIXES:
+BE VERY STRICT:
+- Only return files that ALREADY EXIST in the repository.
+- If a workflow file exists at .github/workflows/*.yml, modify that file.
+- If package.json exists, update ONLY the changed fields.
+- Do not touch other fields inside package.json.
+- Do not reorder, reformat, or restructure the JSON.
+
+If the fix only requires changing a version inside a workflow file:
+→ Only return that workflow file with a single updated line.
+
+If no dependency file exists:
+→ Do NOT create one unless the workflow explicitly requires it.
+
+Now generate ONLY the minimal safe fix.
 `;
 
     try {
