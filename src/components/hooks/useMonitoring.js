@@ -66,9 +66,39 @@ export const useMonitoring = () => {
       const analysis = await groqService.analyzeFailure(workflowLogs, failedRun, repoFullName);
       console.log('✅ Analysis completed:', analysis.issue);
       
-      // Step 3: Generate fix instructions
-      console.log('🛠️ Generating fix instructions...');
-      const fixInstructions = await groqService.generateFixInstructions(analysis, repoFullName);
+      // Step 2.5: fetch repo context (existing workflows + dependency files)
+      console.log('📂 Fetching repo context (workflow files + dependency files)...');
+      const workflowFilesMap = await githubService.listWorkflowFiles(repoFullName); // returns { path: content }
+      const existingWorkflowPaths = Object.keys(workflowFilesMap || {});
+      console.log('Existing workflow files:', existingWorkflowPaths);
+
+      // detect project type from root files
+      const projectType = await (async () => {
+        const rootFiles = [];
+        const tryPaths = ['package.json', 'requirements.txt', 'pyproject.toml', 'pubspec.yaml', 'go.mod', 'Cargo.toml', 'pom.xml', 'build.gradle', 'Dockerfile'];
+        for (const p of tryPaths) {
+          const c = await githubService.getFileContent(repoFullName, p).catch(() => null);
+          if (c !== null) rootFiles.push(p);
+        }
+        return githubService.detectProjectType(rootFiles);
+      })();
+
+      const dependencyFiles = await githubService.fetchDependencyFiles(repoFullName, projectType);
+      console.log('Detected project type:', projectType);
+      console.log('Fetched dependency files:', Object.keys(dependencyFiles));
+
+      // Step 3: Generate fix instructions (pass repo context to AI)
+      console.log('🛠️ Generating fix instructions with repo context...');
+      const fixInstructions = await groqService.generateFixInstructions(
+        analysis,
+        repoFullName,
+        {
+          existingWorkflowFiles: existingWorkflowPaths,
+          workflowFiles: workflowFilesMap, // map: path -> content
+          dependencyFiles,      // map: path -> content (may be empty)
+          projectType
+        }
+      );
       console.log('✅ Fix instructions generated');
 
       // Step 4: Create branch directly via GitHub API
@@ -80,19 +110,87 @@ export const useMonitoring = () => {
         'main'
       );
 
-      // Step 5: Apply fixes (create or update files)
-      console.log('💾 Applying fixes...');
+      // Step 5: Validate AI response and apply fixes safely
+      console.log('💾 Validating and applying fixes safely...');
       const filesToFix = fixInstructions.filesToCreateOrModify || [];
-      
+
+      // helper: check if path exists in repo when required
+      const allowedPaths = new Set([
+        ...Object.keys(workflowFilesMap || {}),
+        ...Object.keys(dependencyFiles || {}),
+        // optionally permit other project source files if you want (not recommended by default)
+      ]);
+
+      // helper: safe package.json merge
+      const safeMergePackageJson = (existingText, aiText) => {
+        try {
+          const existing = JSON.parse(existingText);
+          const aiObj = JSON.parse(aiText);
+          // Merge dependencies/scripts/devDependencies only — leaving everything else untouched
+          const merged = { ...existing };
+          if (aiObj.dependencies) merged.dependencies = { ...existing.dependencies, ...aiObj.dependencies };
+          if (aiObj.devDependencies) merged.devDependencies = { ...existing.devDependencies, ...aiObj.devDependencies };
+          if (aiObj.scripts) merged.scripts = { ...existing.scripts, ...aiObj.scripts };
+          // keep other top-level keys intact (name, version, etc) unless AI explicitly changed them — avoid that
+          return JSON.stringify(merged, null, 2);
+        } catch (e) {
+          // if parse fails, fallback to existing to avoid destructive write
+          console.warn('safeMergePackageJson parse error — rejecting AI package.json change', e);
+          return null;
+        }
+      };
+
+      // Validate files and apply
       for (const file of filesToFix) {
-        console.log(`  - Updating ${file.path}`);
-        await apiService.createOrUpdateFile(
-          repoFullName,
-          file.path,
-          file.content,
-          fixInstructions.commitMessage || `🤖 Auto-fix: ${failedRun.name}`,
-          branchName
-        );
+        const path = file.path;
+        const content = file.content;
+
+        // Reject attempts to create new workflow files
+        if (path.startsWith('.github/workflows')) {
+          if (!allowedPaths.has(path)) {
+            console.warn(`AI attempted to create/modify workflow file not in repository: ${path}. Skipping.`);
+            continue; // skip this file
+          }
+          // OK — existing workflow — proceed
+          console.log(`  - Updating ${path}`);
+          await apiService.createOrUpdateFile(
+            repoFullName,
+            path,
+            content,
+            fixInstructions.commitMessage || `fix: ${analysis.issue}`,
+            branchName
+          );
+          continue;
+        }
+
+        // If AI tries to modify package.json
+        if (path === 'package.json') {
+          // If package.json doesn't exist in repo, reject (we do not create new package.json)
+          if (!('package.json' in dependencyFiles)) {
+            console.warn('AI attempted to create package.json but none exists — rejecting.');
+            continue;
+          }
+          const existingPackage = dependencyFiles['package.json'];
+          // perform safe merge
+          const merged = safeMergePackageJson(existingPackage, content);
+          if (!merged) {
+            console.warn('Package.json merge failed; skipping update to avoid destructive overwrite.');
+            continue;
+          }
+          console.log(`  - Safely merging ${path}`);
+          await apiService.createOrUpdateFile(repoFullName, path, merged, fixInstructions.commitMessage || `fix: ${analysis.issue}`, branchName);
+          continue;
+        }
+
+        // For any other path: permit only if it already exists in repo (allowedPaths)
+        if (!allowedPaths.has(path)) {
+          console.warn(`AI attempted to create or modify non-allowed file ${path}. Skipping.`);
+          continue;
+        }
+
+        // otherwise apply the update
+        console.log(`  - Updating ${path}`);
+        await apiService.createOrUpdateFile(repoFullName, path, content, fixInstructions.commitMessage || `fix: ${analysis.issue}`, branchName);
       }
 
       // Step 6: Create Pull Request

@@ -116,6 +116,12 @@ class ApiService {
     const safePath = filePath.split('/').map(seg => encodeURIComponent(seg)).join('/');
     const getUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${safePath}?ref=${encodeURIComponent(branch)}`;
     const existingRes = await fetch(getUrl, { headers: { 'Authorization': authHeader, 'Accept': 'application/vnd.github.v3+json' } });
+    
+    // Safety check: refuse to create new workflow files
+    if (!existingRes.ok && filePath.startsWith('.github/workflows')) {
+      throw new Error(`Refusing to create new workflow file ${filePath} via API - creation blocked by policy`);
+    }
+    
     if (existingRes.ok) {
       const existingData = await existingRes.json();
       sha = existingData.sha;
