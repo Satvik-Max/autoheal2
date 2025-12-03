@@ -77,15 +77,15 @@ export async function embedText(text) {
       console.error('❌ Failed to load USE model:', error);
 
       const troubleshooting = `
-Troubleshooting steps:
-1. Check your internet connection
-2. Try refreshing the page (Ctrl+F5)
-3. Try Chrome or Firefox (Safari has limitations)
-4. Ensure WebGL is enabled in your browser
-5. Check if you're behind a corporate firewall
-6. Try disabling browser extensions temporarily
+            Troubleshooting steps:
+            1. Check your internet connection
+            2. Try refreshing the page (Ctrl+F5)
+            3. Try Chrome or Firefox (Safari has limitations)
+            4. Ensure WebGL is enabled in your browser
+            5. Check if you're behind a corporate firewall
+            6. Try disabling browser extensions temporarily
 
-If the problem persists, try a different browser or network.
+            If the problem persists, try a different browser or network.
       `.trim();
 
       throw new Error(`Failed to load embedding model: ${error.message}\n\n${troubleshooting}`);
