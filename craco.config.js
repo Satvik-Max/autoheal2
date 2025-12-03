@@ -2,6 +2,14 @@ const webpack = require('webpack');
 const NodePolyfillPlugin = require('node-polyfill-webpack-plugin');
 
 module.exports = {
+  devServer: {
+    headers: {
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Resource-Policy': 'cross-origin'
+    },
+    allowedHosts: 'all',
+  },
   webpack: {
     configure: (webpackConfig) => {
       // Add all Node.js polyfills
@@ -34,6 +42,25 @@ module.exports = {
           tls: false,
           child_process: false,
         },
+      };
+
+      // Configure WASM and model loading for @xenova/transformers
+      webpackConfig.module.rules.push({
+        test: /\.wasm$/,
+        type: 'asset/resource',
+      });
+
+      // Ignore .onnx files (they're loaded at runtime from CDN)
+      webpackConfig.module.rules.push({
+        test: /\.onnx$/,
+        type: 'asset/resource',
+      });
+
+      // Add experimental features for SharedArrayBuffer
+      webpackConfig.experiments = {
+        ...webpackConfig.experiments,
+        asyncWebAssembly: true,
+        syncWebAssembly: true,
       };
 
       return webpackConfig;

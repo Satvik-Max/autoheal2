@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { useMonitoring } from './hooks/useMonitoring';
 import githubService from './services/githubservice';
+import RagChat from './RagChat';
 
 const Profile = () => {
   const { user, signOut } = useAuth();
@@ -19,6 +20,7 @@ const Profile = () => {
   const [error, setError] = useState(null);
   const [activeFilter, setActiveFilter] = useState('all');
   const [showPRNotifications, setShowPRNotifications] = useState(true);
+  const [showChat, setShowChat] = useState(false);
 
   const [userStats, setUserStats] = useState({
     followers: 0,
@@ -316,12 +318,20 @@ const Profile = () => {
                 PRs ({recentPRs.length})
               </button>
             )}
+            <button 
+              onClick={() => setShowChat(s => !s)} 
+              style={{...styles.notificationsButton, backgroundColor: showChat ? '#7c3aed' : '#8b5cf6'}}
+            >
+              {showChat ? 'Close Chat' : 'Chat'}
+            </button>
             <button style={styles.signOutButton} onClick={handleSignOut}>
               Sign Out
             </button>
           </div>
         </div>
       </header>
+
+        <RagChat open={showChat} onClose={() => setShowChat(false)} />
 
       <div style={styles.main}>
         <aside style={styles.sidebar}>

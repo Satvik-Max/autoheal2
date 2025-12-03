@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TensorFlow.js Embedding Test</title>
+</head>
+<body>
+    <h1>TensorFlow.js Universal Sentence Encoder Test</h1>
+    <div id="status">Loading TensorFlow.js...</div>
+    <button id="testBtn" disabled>Test Embedding</button>
+    <div id="result"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.15.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/universal-sentence-encoder@1.3.3/dist/universal-sentence-encoder.min.js"></script>
+
+    <script>
+        const statusDiv = document.getElementById('status');
+        const testBtn = document.getElementById('testBtn');
+        const resultDiv = document.getElementById('result');
+
+        let model = null;
+
+        async function initTF() {
+            try {
+                statusDiv.textContent = 'Initializing TensorFlow.js...';
+
+                // Try WebGL first
+                await tf.setBackend('webgl');
+                await tf.ready();
+                statusDiv.textContent = '✅ TensorFlow.js ready with WebGL';
+            } catch (error) {
+                statusDiv.textContent = '⚠️ WebGL failed, trying WASM...';
+                try {
+                    await tf.setBackend('wasm');
+                    await tf.ready();
+                    statusDiv.textContent = '✅ TensorFlow.js ready with WASM';
+                } catch (wasmError) {
+                    statusDiv.textContent = '⚠️ WASM failed, using CPU...';
+                    await tf.setBackend('cpu');
+                    await tf.ready();
+                    statusDiv.textContent = '✅ TensorFlow.js ready with CPU';
+                }
+            }
+
+            statusDiv.textContent += ' - Loading Universal Sentence Encoder...';
+            model = await use.load();
+            statusDiv.textContent = '✅ Model loaded! Ready to test.';
+            testBtn.disabled = false;
+        }
+
+        async function testEmbedding() {
+            try {
+                testBtn.disabled = true;
+                resultDiv.textContent = 'Generating embedding...';
+
+                const text = "Hello world, this is a test.";
+                const embeddings = await model.embed([text]);
+                const embedding = await embeddings.array();
+
+                resultDiv.innerHTML = `
+                    <p>✅ Embedding generated successfully!</p>
+                    <p>Dimensions: ${embedding[0].length}</p>
+                    <p>First 5 values: [${embedding[0].slice(0, 5).map(x => x.toFixed(4)).join(', ')}]</p>
+                `;
+
+                // Test similarity
+                const text2 = "Hi there, this is another test.";
+                const embeddings2 = await model.embed([text2]);
+                const embedding2 = await embeddings2.array();
+
+                const similarity = cosineSimilarity(embedding[0], embedding2[0]);
+                resultDiv.innerHTML += `<p>Similarity with similar text: ${similarity.toFixed(4)}</p>`;
+
+            } catch (error) {
+                resultDiv.innerHTML = `<p style="color: red;">❌ Error: ${error.message}</p>`;
+            } finally {
+                testBtn.disabled = false;
+            }
+        }
+
+        function cosineSimilarity(a, b) {
+            let dot = 0, na = 0, nb = 0;
+            for (let i = 0; i < a.length && i < b.length; i++) {
+                dot += a[i] * b[i];
+                na += a[i] * a[i];
+                nb += b[i] * b[i];
+            }
+            const denom = Math.sqrt(na) * Math.sqrt(nb) || 1e-9;
+            return dot / denom;
+        }
+
+        testBtn.addEventListener('click', testEmbedding);
+        initTF();
+    </script>
+</body>
+</html>
