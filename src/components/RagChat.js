@@ -202,22 +202,6 @@ const RagChat = ({ open, onClose }) => {
 
       {manageOpen && (
         <div style={manageBox}>
-          <div style={manageRow}>
-            <label style={label}>Groq LLM</label>
-            <div style={{ fontSize: 13, color: GROQ_API_KEY ? '#065f46' : '#b91c1c', marginRight: 8 }}>
-              {GROQ_API_KEY ? 'Configured (REACT_APP_GROQ_API_KEY)' : 'Not configured — LLM disabled'}
-            </div>
-            <button onClick={() => setAiEnabled(v => !v)} title={aiEnabled ? 'Turn AI off' : 'Turn AI on'} aria-pressed={aiEnabled} style={{ ...iconBtn, background: aiEnabled ? '#dcfce7' : 'transparent' }}>
-              {/* simple toggle icon */}
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="9" stroke="#065f46" strokeWidth="1.2" fill={aiEnabled ? '#065f46' : 'none'} /></svg>
-            </button>
-            <button onClick={() => { if (GROQ_API_KEY && navigator.clipboard) navigator.clipboard.writeText(GROQ_API_KEY); }} title="Copy configured key" style={iconBtn} disabled={!GROQ_API_KEY}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="9" y="9" width="8" height="8" stroke="#111827" strokeWidth="1.2"/><path d="M15 7H7a2 2 0 0 0-2 2v8" stroke="#111827" strokeWidth="1.2" fill="none"/></svg>
-            </button>
-          </div>
-          <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>
-            Embeddings work in the browser; LLM calls use the configured environment key in production.
-          </div>
           <div style={manageRowCol}>
             <label style={label}>Add Knowledge</label>
             <input value={docTitle} onChange={e => setDocTitle(e.target.value)} placeholder="Title (optional)" style={inputStyle} />
