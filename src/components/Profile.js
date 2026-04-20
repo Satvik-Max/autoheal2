@@ -25,7 +25,7 @@ const Profile = () => {
   const [userStats, setUserStats] = useState({
     followers: 0,
     following: 0,
-    public_repos: 0,
+    public_repos: 0, 
     bio: '',
     location: '',
     company: ''
